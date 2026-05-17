@@ -312,6 +312,7 @@ flutter build linux     # リリースビルド</code></pre>
 <table>
   <tr><th>リスク</th><th>対処</th></tr>
   <tr><td>Flutter Linux GUI が WSLg で表示されない</td><td><code>echo $DISPLAY</code> で <code>:0</code> を確認、WSL を再起動</td></tr>
+  <tr><td><code>MESA: error: ZINK</code> で即終了する</td><td><strong>実証済み対処:</strong> <code>export LIBGL_ALWAYS_SOFTWARE=1</code> と <code>export MESA_GL_VERSION_OVERRIDE=3.3</code> を設定してからflutter run を実行する</td></tr>
   <tr><td>snap が WSL2 で使えない</td><td><strong>既知問題 → 公式バイナリを手動展開 (計画済み・実証済み)</strong></td></tr>
   <tr><td>Figma MCP が VSCode Remote WSL 環境で認識されない</td><td><strong>実績あり:</strong> <code>claude mcp add</code> は Windows 側 <code>C:\Users\...\.claude.json</code> に書き込むが、VSCode Remote WSL では WSL 側の <code>~/.claude.json</code> を読む。<code>~/.vscode-server/</code> 内の Claude バイナリで <code>mcp add</code> を実行し直すこと。VSCode の完全再起動（終了→起動）が必要。</td></tr>
   <tr><td>Figma MCP サーバーの精度が低い</td><td>スクリーンショット → Claude Code に貼り付ける方式にフォールバック</td></tr>

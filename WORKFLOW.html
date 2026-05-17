@@ -234,8 +234,16 @@ python3 tools/tokens_to_dart.py
 <h2 id="build-run">5. ビルド・実行手順</h2>
 
 <div class="step">デバッグ実行（WSLg 経由で Windows ウィンドウとして表示）</div>
+<div class="warn">
+  <strong>⚠️ WSLg での実行時は MESA ソフトウェアレンダラーが必要（実証済み）:</strong>
+  環境変数なしで実行すると <code>MESA: error: ZINK: failed to choose pdev</code> が発生し
+  <code>Lost connection to device</code> で即終了する。
+  必ず以下の環境変数を設定してから実行すること。
+</div>
 <pre><code>export PATH="$HOME/flutter/bin:$PATH"
 export DISPLAY=:0
+export LIBGL_ALWAYS_SOFTWARE=1       # ソフトウェアレンダラーを強制（必須）
+export MESA_GL_VERSION_OVERRIDE=3.3  # OpenGL バージョンを上書き（必須）
 cd poc_app
 flutter run -d linux</code></pre>
 
