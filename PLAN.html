@@ -185,7 +185,7 @@ flutter pub get
 flutter run -d linux    # WSLg 経由で Windows ウィンドウとして表示
 flutter build linux     # リリースビルド</code></pre>
 
-<div class="phase"><h3>Phase 5: ワークフロー文書化 (0.5日)</h3></div>
+<div class="phase"><h3>Phase 5: ワークフロー文書化 (0.5日) ✅ 完了</h3></div>
 <ul>
   <li>Figma → Claude Code → Flutter の操作手順（再現可能な形で）</li>
   <li>Design Tokens 双方向同期の操作手順</li>
@@ -193,14 +193,53 @@ flutter build linux     # リリースビルド</code></pre>
   <li>本番（組み込み Linux）への移行時の追加課題リスト</li>
 </ul>
 
+<div class="phase"><h3>Phase 6: Flutter → Figma 完全逆反映（保留中）</h3></div>
+<blockquote>
+  <strong>背景:</strong> 現在の Flutter → Figma 逆方向は色のみ自動・テキスト/サイズは手動。
+  <code>figma-use</code> (Chrome DevTools Protocol 経由) を使えば、テキスト・サイズ・色すべてを自動反映できる可能性がある。
+</blockquote>
+
+<p><strong>提案フロー:</strong></p>
+<ol>
+  <li><strong>Flutter 差分の把握</strong> — <code>git diff</code> でテキスト・色・サイズの変更を抽出 → <code>diff_result.json</code></li>
+  <li><strong>Figma データのエクスポート</strong> — Figma MCP / REST API で現在のノード情報を取得</li>
+  <li><strong>差分反映スクリプト</strong> — <code>diff_result.json</code> を <code>tokens.json</code> に統合</li>
+  <li><strong>Figma へのインポート</strong> — <code>figma-use</code> CLI でノードを直接更新</li>
+</ol>
+
+<p><strong>変更種別ごとの自動化レベル:</strong></p>
+<table>
+  <tr><th>変更種別</th><th>反映方法</th><th>自動化</th></tr>
+  <tr><td>色 (Color)</td><td>tokens.json → Token Studio / Variables API</td><td class="badge-ok">✅ 自動</td></tr>
+  <tr><td>テキスト内容</td><td>figma-use CLI でノード直接書き換え</td><td class="badge-ok">✅ 自動 (要 Figma Desktop 起動)</td></tr>
+  <tr><td>サイズ・座標</td><td>figma-use CLI でノード直接書き換え</td><td class="badge-ok">✅ 自動 (要 Figma Desktop 起動)</td></tr>
+  <tr><td>タイポグラフィ</td><td>tokens.json → Token Studio</td><td class="badge-ok">✅ 自動</td></tr>
+  <tr><td>UI 構造追加・削除</td><td>Plugin API (figma-use) で新規ノード生成</td><td class="badge-warn">⚠️ 複雑・スコープ外</td></tr>
+</table>
+
+<p><strong>実装予定スクリプト:</strong></p>
+<pre><code>tools/
+├── extract_flutter_diff.py   # git diff → diff_result.json
+├── apply_diff_to_tokens.py   # diff_result.json → tokens.json（拡張版）
+├── push_to_figma.sh          # figma-use でノード直接更新
+└── sync_flutter_to_figma.sh  # 上記を一括実行</code></pre>
+
+<p><strong>前提条件:</strong></p>
+<ul>
+  <li>Windows 側で Figma Desktop が <code>--remote-debugging-port=9222</code> 付きで起動していること</li>
+  <li><code>figma-use</code> (npm: dannote/figma-use) を WSL2 からインストール</li>
+  <li>各ノードの ID を事前に Figma MCP で取得しておくこと</li>
+</ul>
+
 <h2>Figma ↔ Flutter 双方向連携の技術的評価</h2>
 <table>
   <tr><th>方向</th><th>対象</th><th>可能性</th><th>手法</th></tr>
   <tr><td>Figma → Flutter</td><td>UI コンポーネント</td><td class="badge-ok">✅ 高</td><td>Figma MCP + Claude Code</td></tr>
-  <tr><td>Figma → Flutter</td><td>Design Tokens</td><td class="badge-ok">✅ 高</td><td>Token Studio Export + figma2flutter</td></tr>
-  <tr><td>Flutter → Figma</td><td>UI コンポーネント</td><td class="badge-ng">❌ ほぼ不可能</td><td>実装例なし</td></tr>
-  <tr><td>Flutter → Figma</td><td>Design Tokens のみ</td><td class="badge-warn">⚠️ 手動操作</td><td>tokens.json → Token Studio 手動 Import（無料プラン制約）</td></tr>
-  <tr><td>完全な双方向同期</td><td>全体</td><td class="badge-ng">❌ 不可能</td><td>—</td></tr>
+  <tr><td>Figma → Flutter</td><td>Design Tokens</td><td class="badge-ok">✅ 高</td><td>自前スクリプト <code>tokens_to_dart.py</code>（tokens.json → Dart）</td></tr>
+  <tr><td>Flutter → Figma</td><td>UI コンポーネント構造</td><td class="badge-ng">❌ ほぼ不可能</td><td>ノード追加・削除は複雑すぎて自動化困難</td></tr>
+  <tr><td>Flutter → Figma</td><td>テキスト・色・サイズ</td><td class="badge-warn">⚠️ 条件付き自動</td><td>figma-use (CDP) 経由で可能（Phase 6・保留中）</td></tr>
+  <tr><td>Flutter → Figma</td><td>Design Tokens のみ</td><td class="badge-warn">⚠️ 手動操作</td><td>tokens.json → Token Studio 手動 Import（現行・無料プラン制約）</td></tr>
+  <tr><td>完全な双方向同期</td><td>全体</td><td class="badge-ng">❌ 不可能</td><td>UI 構造変更は双方向対応不可</td></tr>
 </table>
 
 <h3>Flutter → Figma（逆方向）が困難な理由</h3>
@@ -229,8 +268,9 @@ flutter build linux     # リリースビルド</code></pre>
   <tr><td>Node.js</td><td>18+</td><td>figma-mcp-server 実行</td></tr>
   <tr><td>Figma アカウント</td><td>無料プラン可</td><td>デザインソース</td></tr>
   <tr><td>Claude Code</td><td>現行</td><td>MCP 経由でコード生成</td></tr>
-  <tr><td>figma2flutter</td><td>pub.dev</td><td>Design Tokens JSON → Dart 変換</td></tr>
-  <tr><td>Token Studio (Figma プラグイン)</td><td>無料</td><td>Figma Variables ↔ JSON 同期（逆方向は手動 import）</td></tr>
+  <tr><td><strong>tokens_to_dart.py</strong> (自前)</td><td>—</td><td>tokens.json → app_theme.dart 自動生成（実装済み）</td></tr>
+  <tr><td><strong>dart_to_tokens.py</strong> (自前)</td><td>—</td><td>app_theme.dart の色変更を tokens.json に逆反映（実装済み）</td></tr>
+  <tr><td>Token Studio (Figma プラグイン)</td><td>無料</td><td>Figma Variables ↔ JSON 手動 import（逆方向は手動操作が残る）</td></tr>
 </table>
 
 <h2>検証ステップ (完了条件)</h2>
@@ -243,6 +283,30 @@ flutter build linux     # リリースビルド</code></pre>
   <li>Flutter theme の色変更を tokens.json に書き出し → Token Studio 手動 import で Figma Variables に反映される（Phase 3 / 無料プラン制約により手動ステップあり）</li>
   <li>PoC 手順書が書ける（Phase 5）</li>
 </ol>
+
+<h2>補足: figma2flutter パッケージについて</h2>
+<p>
+  <code>figma2flutter</code> は pub.dev で公開されている Design Tokens → Dart 変換パッケージ。
+  本 PoC では<strong>使用していない</strong>（自前スクリプトで同等機能を実装）が、将来の移行検討のために調査結果を記録する。
+</p>
+
+<table>
+  <tr><th>評価軸</th><th>figma2flutter</th><th>自前ツール (tokens_to_dart.py)</th></tr>
+  <tr><td>色</td><td class="badge-ok">✅ グラデーション・修飾子も対応</td><td class="badge-ok">✅ 対応</td></tr>
+  <tr><td>タイポグラフィ</td><td class="badge-ok">✅ 全属性対応</td><td class="badge-warn">⚠️ title スタイルのみ</td></tr>
+  <tr><td>スペーシング</td><td class="badge-ok">✅ EdgeInsets として生成</td><td class="badge-warn">⚠️ 数値定数のみ（未リンク）</td></tr>
+  <tr><td>ボーダー・シャドウ</td><td class="badge-ok">✅ 対応</td><td class="badge-ng">❌ 未対応</td></tr>
+  <tr><td>複数テーマ (Dark Mode等)</td><td class="badge-ok">✅ ITokens インターフェース</td><td class="badge-ng">❌ 非対応</td></tr>
+  <tr><td>双方向同期 (Dart→Figma)</td><td class="badge-ng">❌ 一方向のみ</td><td class="badge-ok">✅ dart_to_tokens.py で対応</td></tr>
+  <tr><td>カスタマイズ</td><td class="badge-warn">⚠️ Dart 知識が必要</td><td class="badge-ok">✅ Python で容易に拡張可</td></tr>
+  <tr><td>メンテナンス状況</td><td class="badge-warn">⚠️ v0.3.1-alpha（不安定）</td><td class="badge-warn">⚠️ PoC 段階</td></tr>
+</table>
+
+<p><strong>使い分けの目安:</strong></p>
+<ul>
+  <li><strong>PoC・プロトタイプ規模</strong> → 自前ツールで十分。双方向同期の強みあり。</li>
+  <li><strong>本番・大規模デザインシステム・複数テーマ</strong> → figma2flutter を再評価。ただし alpha 版のため安定性に注意。</li>
+</ul>
 
 <h2>リスクと対処</h2>
 <table>

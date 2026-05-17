@@ -198,26 +198,37 @@ flutter analyze  # "No issues found!" が返れば OK</code></pre>
   <li>ファイルを WSL2 プロジェクトフォルダにコピー</li>
 </ol>
 
-<div class="step">Step 3: figma2flutter で Dart コードに変換</div>
-<pre><code>dart pub global activate figma2flutter
-figma2flutter --input tokens.json --output lib/theme/tokens.dart</code></pre>
+<div class="step">Step 3: tokens_to_dart.py で Dart コードに変換（実装済み）</div>
+<div class="ok"><strong>✅ 実装済み:</strong> <code>figma2flutter</code> パッケージは使わず、自前の Python スクリプトで同等機能を実装。双方向同期に対応している点が自前ツールの強み。</div>
+<pre><code>cd poc_app
+python3 tools/tokens_to_dart.py
+# → lib/theme/app_theme.dart が自動生成される</code></pre>
 
-<h3>4-2. Flutter → Figma（逆方向・手動）</h3>
+<h3>4-2. Flutter → Figma（逆方向）</h3>
 <div class="warn">
   <strong>⚠️ 無料プラン制約:</strong> Figma REST API の Variables 書き込み (<code>file_variables:write</code>) は
-  Enterprise プランのみ。無料プランでは手動 import が必要。
+  Enterprise プランのみ。色以外（テキスト・サイズ）は REST API では書き込み不可。
+  現行実装では <strong>色のみ自動・テキスト/サイズは手動</strong> で Figma を編集する。
 </div>
 
-<div class="step">Step 1: Flutter 側のトークン値を tokens.json に書き出す</div>
-<pre><code># lib/theme/app_theme.dart の変更内容を tokens.json に手動で反映
-# または専用スクリプト（dart run tools/export_tokens.dart）で生成</code></pre>
+<div class="step">Step 1: app_theme.dart の変更を tokens.json に書き出す（色のみ自動）</div>
+<pre><code>python3 tools/dart_to_tokens.py
+# app_theme.dart の AppColors クラスから色定数を抽出し tokens.json を更新
+# 変更があれば差分を表示して次のステップを案内する</code></pre>
 
-<div class="step">Step 2: Figma の Token Studio で import</div>
+<div class="step">Step 2: Figma の Token Studio で colors を import（色）</div>
 <ol>
   <li>Windows 側の Figma を開く</li>
   <li>Token Studio プラグイン → Import JSON → <code>tokens.json</code> を選択</li>
-  <li>Figma Variables が更新されたことを確認</li>
+  <li>Figma Variables（色）が更新されたことを確認</li>
 </ol>
+
+<div class="step">Step 3: テキスト・サイズの変更は Figma を直接手動編集</div>
+<ul>
+  <li>テキスト変更: 該当レイヤーをダブルクリックして編集</li>
+  <li>サイズ・座標変更: 右パネルで数値を修正</li>
+  <li><strong>将来的な自動化:</strong> <code>figma-use</code> (Chrome DevTools Protocol) を使えばテキスト・サイズも自動反映可能（Phase 6・保留中）</li>
+</ul>
 
 <!-- ============================================================ -->
 <h2 id="build-run">5. ビルド・実行手順</h2>
@@ -246,8 +257,10 @@ flutter run -d linux</code></pre>
   <tr><td>Flutter UI コード生成</td><td class="badge-auto">✅ 自動</td><td>Claude Code が生成</td></tr>
   <tr><td>flutter analyze / build</td><td class="badge-auto">✅ 自動</td><td>CI/CD に組み込み可</td></tr>
   <tr><td>Figma Variables → tokens.json Export</td><td class="badge-manual">⚠️ 手動</td><td>Token Studio プラグインで手動操作（無料プラン）</td></tr>
-  <tr><td>tokens.json → Dart コード変換</td><td class="badge-auto">✅ 自動</td><td><code>figma2flutter</code> コマンド</td></tr>
-  <tr><td>Flutter 変更 → Figma Variables 反映</td><td class="badge-manual">⚠️ 手動</td><td>Token Studio で手動 import（無料プラン制約）</td></tr>
+  <tr><td>tokens.json → Dart コード変換</td><td class="badge-auto">✅ 自動</td><td><code>python3 tools/tokens_to_dart.py</code>（自前スクリプト）</td></tr>
+  <tr><td>Flutter 変更（色）→ tokens.json 更新</td><td class="badge-auto">✅ 自動</td><td><code>python3 tools/dart_to_tokens.py</code>（色のみ対応）</td></tr>
+  <tr><td>Flutter 変更（色）→ Figma Variables 反映</td><td class="badge-manual">⚠️ 手動</td><td>Token Studio で手動 import（無料プラン制約）</td></tr>
+  <tr><td>Flutter 変更（テキスト・サイズ）→ Figma 反映</td><td class="badge-manual">⚠️ 手動</td><td>Figma を直接手動編集（REST API 非対応のため）</td></tr>
   <tr><td>GitHub へのコード登録</td><td class="badge-auto">✅ 自動</td><td><code>git push</code></td></tr>
 </table>
 
@@ -256,6 +269,7 @@ flutter run -d linux</code></pre>
   <li>GitHub Actions で <code>flutter build linux</code> を CI に組み込み可能</li>
   <li>Figma Webhook + tokens.json 自動生成スクリプトで Export を半自動化できる</li>
   <li>Enterprise プランに移行すれば Variables の書き込みも API 自動化できる</li>
+  <li><strong>figma-use</strong> を使えばテキスト・サイズの逆反映も自動化可能（下記補足参照）</li>
 </ul>
 
 <!-- ============================================================ -->
@@ -300,6 +314,87 @@ flutter run -d linux</code></pre>
 # https://github.com/sony/flutter-elinux
 git clone https://github.com/sony/flutter-elinux
 ./flutter-elinux/bin/flutter-elinux build elinux --target-arch arm64</code></pre>
+
+<!-- ============================================================ -->
+<h2>補足A: figma-use CLI について（Phase 6 候補技術）</h2>
+
+<p>
+  <strong>GitHub: <a href="https://github.com/dannote/figma-use">dannote/figma-use</a></strong><br>
+  Chrome DevTools Protocol (CDP) 経由で Figma Desktop を操作する OSS CLI ツール。
+  REST API では不可能なテキスト・サイズ・色の書き込みをターミナルから実行できる。
+</p>
+
+<h3>仕組み</h3>
+<pre><code>WSL2 ターミナル
+    ↓ npx figma-use &lt;command&gt;
+Chrome DevTools Protocol (port 9222)
+    ↓
+Windows 側 Figma Desktop (Electron/Chromium)
+    ↓ Plugin API 相当の操作
+Figma キャンバス上のノード</code></pre>
+
+<h3>主なコマンド</h3>
+<table>
+  <tr><th>操作</th><th>コマンド例</th></tr>
+  <tr><td>テキスト変更</td><td><code>figma-use set-text --node-id 1:1684 --text "新テキスト"</code></td></tr>
+  <tr><td>色変更</td><td><code>figma-use set-fill --node-id 1:1682 --color "#2196F3"</code></td></tr>
+  <tr><td>サイズ変更</td><td><code>figma-use resize --node-id 1:1684 --width 580 --height 118</code></td></tr>
+  <tr><td>位置変更</td><td><code>figma-use move --node-id 1:1684 --x 117 --y 209</code></td></tr>
+  <tr><td>ノード情報取得</td><td><code>figma-use get --node-id 1:1684</code></td></tr>
+</table>
+
+<h3>前提条件</h3>
+<div class="warn">
+  <strong>⚠️ Figma Desktop を特殊起動する必要がある:</strong>
+  <pre><code># Windows PowerShell で実行
+&amp; "C:\Users\&lt;name&gt;\AppData\Local\Figma\Figma.exe" --remote-debugging-port=9222</code></pre>
+  通常起動では CDP が無効なため、毎回このオプション付きで起動する必要がある。
+</div>
+
+<h3>制約・注意点</h3>
+<table>
+  <tr><th>項目</th><th>内容</th></tr>
+  <tr><td>Figma Desktop 必須</td><td>ブラウザ版 Figma では動作しない</td></tr>
+  <tr><td>常時起動が必要</td><td>操作中は Figma Desktop が開いていること</td></tr>
+  <tr><td>公式サポート外</td><td>Figma の内部実装変更で突然動かなくなるリスクあり</td></tr>
+  <tr><td>ノード ID が必要</td><td>事前に Figma MCP で各ノードの ID を取得しておくこと</td></tr>
+  <tr><td>アルファ品質</td><td>2024年末リリースで実績がまだ少ない</td></tr>
+  <tr><td>CI/CD 不向き</td><td>Figma Desktop の常時起動が必要なため、ローカル環境での利用が現実的</td></tr>
+</table>
+
+<h3>このプロジェクトでの位置づけ</h3>
+<p>
+  Phase 6（保留中）の中核技術。現在「手動」になっているテキスト・サイズの Figma 逆反映を自動化するために使用予定。
+  実装する場合は <code>tools/push_to_figma.sh</code> から呼び出す形になる。
+</p>
+
+<!-- ============================================================ -->
+<h2>補足B: figma2flutter パッケージについて</h2>
+
+<p>
+  <strong>pub.dev: <a href="https://pub.dev/packages/figma2flutter">figma2flutter</a></strong><br>
+  Design Tokens JSON → Flutter Dart コードに変換する Dart パッケージ。
+  本 PoC では<strong>使用していない</strong>（自前の <code>tokens_to_dart.py</code> で同等機能を実装済み）。
+  将来の移行検討のために調査結果を記録する。
+</p>
+
+<table>
+  <tr><th>評価軸</th><th>figma2flutter</th><th>自前ツール (tokens_to_dart.py)</th></tr>
+  <tr><td>色</td><td>✅ グラデーション・修飾子も対応</td><td>✅ 対応</td></tr>
+  <tr><td>タイポグラフィ</td><td>✅ 全属性対応</td><td>⚠️ title スタイルのみ</td></tr>
+  <tr><td>スペーシング</td><td>✅ EdgeInsets として生成</td><td>⚠️ 数値定数のみ（未リンク）</td></tr>
+  <tr><td>ボーダー・シャドウ</td><td>✅ 対応</td><td>❌ 未対応</td></tr>
+  <tr><td>複数テーマ (Dark Mode等)</td><td>✅ ITokens インターフェース</td><td>❌ 非対応</td></tr>
+  <tr><td>双方向同期 (Dart→Figma)</td><td>❌ 一方向のみ</td><td>✅ dart_to_tokens.py で対応</td></tr>
+  <tr><td>カスタマイズ</td><td>⚠️ Dart 知識が必要</td><td>✅ Python で容易に拡張可</td></tr>
+  <tr><td>メンテナンス状況</td><td>⚠️ v0.3.1-alpha（不安定）</td><td>⚠️ PoC 段階</td></tr>
+</table>
+
+<p><strong>使い分けの目安:</strong></p>
+<ul>
+  <li><strong>PoC・プロトタイプ規模</strong> → 自前ツールで十分。双方向同期の強みあり。</li>
+  <li><strong>本番・大規模デザインシステム・複数テーマ</strong> → figma2flutter を再評価。ただし alpha 版のため安定性に注意。</li>
+</ul>
 
 </body>
 </html>
