@@ -34,19 +34,19 @@ class DashboardScreen extends StatelessWidget {
                 ),
               ),
 
-              // タイトルテキスト (x:117, y:209, 295x118)
+              // タイトルテキスト (x:117, y:209, 580x118)
               Positioned(
                 left: 117 * scale,
                 top: 209 * scale,
-                width: 295 * scale,
+                width: 580 * scale,
                 height: 118 * scale,
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'タイトル',
+                    'PoC - Figma - Flutter',
                     style: AppTextStyles.title.copyWith(
-                      fontSize: 34 * scale,
-                      letterSpacing: -0.68 * scale,
+                      fontSize: 28 * scale,
+                      letterSpacing: -0.56 * scale,
                     ),
                   ),
                 ),
