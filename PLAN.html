@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Figma × Claude Code × Flutter 連携 PoC 計画</title>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; max-width: 900px; margin: 40px auto; padding: 0 24px; color: #222; line-height: 1.7; }
+    h1 { border-bottom: 3px solid #1976D2; padding-bottom: 12px; color: #1976D2; }
+    h2 { border-bottom: 1px solid #ddd; padding-bottom: 6px; margin-top: 40px; color: #333; }
+    h3 { color: #1976D2; margin-top: 28px; }
+    h4 { color: #555; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.9em; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto; }
+    pre code { background: none; padding: 0; color: inherit; font-size: 0.88em; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th { background: #1976D2; color: white; padding: 8px 12px; text-align: left; }
+    td { padding: 8px 12px; border: 1px solid #ddd; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    blockquote { border-left: 4px solid #1976D2; margin: 0; padding: 8px 16px; background: #e3f2fd; border-radius: 0 4px 4px 0; }
+    .badge-ok   { color: #2e7d32; font-weight: bold; }
+    .badge-warn { color: #e65100; font-weight: bold; }
+    .badge-ng   { color: #c62828; font-weight: bold; }
+    .phase { background: #e3f2fd; border-left: 5px solid #1976D2; padding: 4px 12px; margin: 8px 0; border-radius: 0 4px 4px 0; }
+    .meta { color: #888; font-size: 0.85em; margin-bottom: 32px; }
+  </style>
+</head>
+<body>
+
+<h1>Figma × Claude Code × Flutter 連携 PoC 計画</h1>
+<p class="meta">作成日: 2026-05-17 &nbsp;|&nbsp; 対象環境: Windows 11 + WSL2 (Ubuntu 24.04)</p>
+
+<h2>Context</h2>
+<p><strong>目的:</strong> Figma でデザイン → Claude Code でコード生成 → Flutter でアプリ実行、という開発ワークフローを実証する PoC を作る。
+最終的な本番ターゲットは組み込み Linux (詳細未確定) だが、今回はその前段として連携フローそのものを検証する。</p>
+<ul>
+  <li>Flutter 経験なし・Figma 未導入の状態からのゼロスタート</li>
+  <li><strong>開発環境: Windows 11 + WSL2 (Ubuntu 24.04)</strong>
+    <ul>
+      <li>WSL バージョン: 2.6.3.0</li>
+      <li>WSLg バージョン: 1.0.71 (GUI アプリ表示が追加設定なしで使える)</li>
+      <li>Windows バージョン: 10.0.26200 (Windows 11)</li>
+    </ul>
+  </li>
+  <li>Claude Code は WSL2 上の Ubuntu で動作</li>
+  <li>Figma・ブラウザは Windows 側で操作</li>
+  <li>Claude Code が「設計・コード生成・レビュー」すべてを担う</li>
+</ul>
+
+<h2>推奨ワークフロー設計</h2>
+<h3>なぜ Figma MCP を選ぶか</h3>
+<table>
+  <tr><th>手法</th><th>メリット</th><th>デメリット</th></tr>
+  <tr><td>スクリーンショット → コード</td><td>環境不要・手軽</td><td>精度低・手動ステップ多い</td></tr>
+  <tr><td>Figma Export (JSON/SVG) → コード</td><td>中程度の精度</td><td>変換ツールの保守コスト</td></tr>
+  <tr><td><strong>Figma MCP + Claude Code</strong></td><td>デザイン情報を構造化で取得・高精度</td><td>Figma アカウント + MCP 設定が必要</td></tr>
+</table>
+<p>→ <strong>Figma MCP 連携</strong>を採用。Claude Code が Figma のデザインデータを直接読み取り、Flutter ウィジェットコードを生成する。</p>
+
+<h2>フェーズ構成</h2>
+
+<div class="phase"><h3>Phase 0-0: プラン HTML 保存（最初に実行）</h3></div>
+<p>プロジェクトフォルダを作成し、このプランを HTML 形式で保存する。以降のすべての作業は <code>/home/nktds/Projects/poc-figma-flutter/</code> 以下で行う。</p>
+
+<div class="phase"><h3>Phase 0: 環境構築 (1〜2日)</h3></div>
+
+<h4>0-1. WSL2 環境の前提確認</h4>
+<p><strong>WSLg が有効なので追加の X11 設定は不要。</strong> GUI アプリはそのまま Windows 上のウィンドウとして表示される。</p>
+<pre><code>echo $DISPLAY          # :0 が返れば WSLg 有効
+echo $WAYLAND_DISPLAY  # wayland-0 が返れば Wayland も有効
+
+sudo apt update
+sudo apt install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev</code></pre>
+
+<h4>0-2. Flutter SDK のインストール (WSL2 内)</h4>
+<p>snap は WSL2 では動作しないため、<strong>公式バイナリを手動展開</strong>する:</p>
+<blockquote>
+  <strong>⚠️ 実績値:</strong> 実際にインストールした Flutter は <strong>3.41.9</strong>（プランの 3.22.0 より新しい安定版）。
+  最新版バージョンは以下で確認してからダウンロードすること。
+</blockquote>
+<pre><code># 最新安定版バージョンを確認
+python3 -c "import json,urllib.request; d=json.load(urllib.request.urlopen('https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json')); r=[x for x in d['releases'] if x['channel']=='stable'][0]; print(r['version'], r['archive'])"
+
+# 確認したバージョンでダウンロード（例: 3.41.9）
+cd ~
+wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.41.9-stable.tar.xz
+tar xf flutter_linux_3.41.9-stable.tar.xz
+echo 'export PATH="$HOME/flutter/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+flutter doctor
+flutter config --enable-linux-desktop</code></pre>
+<blockquote>Windows 側の Flutter は使わない。組み込み Linux をターゲットにするため WSL2 内の Linux Flutter を使う。</blockquote>
+
+<h4>0-3. Figma アカウント作成 &amp; Figma MCP 設定</h4>
+<blockquote>
+  <strong>⚠️ 実績に基づく修正:</strong> Claude Code の MCP 設定は <code>~/.claude/settings.json</code> ではなく
+  <strong><code>~/.claude.json</code> (WSL 側)</strong> に保存される。
+  また VSCode Remote (WSL) 拡張経由で使う場合は <code>~/.vscode-server/</code> 内の Claude バイナリで登録する必要がある。
+</blockquote>
+<ol>
+  <li>Windows のブラウザで figma.com にアクセスし無料アカウント作成</li>
+  <li>Figma Personal Access Token を発行 (Settings → Account → Personal access tokens)
+    <ul>
+      <li>Scope: <strong>File content: Read only</strong> のみ選択（Variables は無料プランでは表示されない）</li>
+      <li>Expiration: 30 days 推奨</li>
+    </ul>
+  </li>
+  <li>トークンをファイルに安全保存: <code>echo 'FIGMA_ACCESS_TOKEN=&lt;token&gt;' &gt; ~/.figma_token &amp;&amp; chmod 600 ~/.figma_token</code></li>
+  <li>MCP を登録（VSCode Remote WSL 環境の場合は vscode-server のバイナリを使う）</li>
+</ol>
+<pre><code># 通常の WSL ターミナルから登録する場合
+TOKEN=$(grep FIGMA_ACCESS_TOKEN ~/.figma_token | cut -d= -f2-)
+claude mcp add figma -s user -- npx -y figma-developer-mcp --figma-api-key $TOKEN --stdio
+
+# VSCode Remote (WSL) 拡張経由で使う場合は vscode-server のバイナリで登録
+CLAUDE_BIN=$(ls ~/.vscode-server/extensions/anthropic.claude-code-*/resources/native-binary/claude 2>/dev/null | tail -1)
+$CLAUDE_BIN mcp add figma -s user -- npx -y figma-developer-mcp --figma-api-key $TOKEN --stdio
+
+# 登録確認
+$CLAUDE_BIN mcp list   # figma: ✓ Connected が表示されれば OK</code></pre>
+<p>登録後、VSCode を完全再起動（Reload Window ではなく終了→再起動）すること。</p>
+
+<h4>0-4. Node.js 確認 (WSL2 内)</h4>
+<pre><code>node -v  # 18+ 必要（Node.js 24.x でも動作確認済み）
+npm -v</code></pre>
+
+<div class="phase"><h3>Phase 1: サンプル Figma デザイン作成 (0.5日)</h3></div>
+<p>Figma で簡単な UI を 1 画面作成する。</p>
+<p><strong>推奨サンプル: シンプルなダッシュボード画面</strong></p>
+<ul>
+  <li>ヘッダー (タイトル + アイコン)</li>
+  <li>カード型ウィジェット × 2〜3 個</li>
+  <li>ボタン × 1〜2 個</li>
+</ul>
+
+<div class="phase"><h3>Phase 2: Figma → Flutter UI コード生成（単方向・PoC 核心）(1日)</h3></div>
+<p>Claude Code の操作フロー:</p>
+<ol>
+  <li>Figma MCP ツールで対象フレームの情報を取得</li>
+  <li>コンポーネント構造・色・フォント・間隔を解析</li>
+  <li>Flutter ウィジェットツリーとして出力</li>
+</ol>
+<pre><code>poc_app/
+├── lib/
+│   ├── main.dart
+│   ├── screens/
+│   │   └── dashboard_screen.dart   # Figma から生成
+│   ├── widgets/
+│   │   └── card_widget.dart        # Figma から生成
+│   └── theme/
+│       └── app_theme.dart          # Phase 3 で Design Tokens から生成
+├── tokens.json                     # Phase 3 で使用する中間ファイル
+└── pubspec.yaml</code></pre>
+
+<div class="phase"><h3>Phase 3: Design Tokens 双方向同期 (1日)</h3></div>
+<blockquote>
+  <strong>⚠️ 方針変更 (2026-05-17):</strong>
+  Figma の <code>file_variables</code> API スコープは <strong>エンタープライズプラン限定</strong> のため、
+  無料プランでは API 経由の Variables 書き込みが不可。
+  Flutter → Figma の逆方向は <strong>Token Studio プラグインの手動 import</strong> で代替する。
+</blockquote>
+
+<p><strong>Figma → Flutter（トークン順方向 / 自動）:</strong></p>
+<ol>
+  <li>Figma で Token Studio プラグインを開き、Variables を <code>tokens.json</code> として Export</li>
+  <li><code>figma2flutter</code> で Dart コードに変換</li>
+</ol>
+<pre><code>dart pub global activate figma2flutter
+figma2flutter --input tokens.json --output lib/theme/tokens.dart</code></pre>
+
+<p><strong>Flutter → Figma（トークン逆方向 / 手動操作）:</strong></p>
+<ol>
+  <li>Flutter 側で色などのトークン値を <code>tokens.json</code> に書き出すスクリプトを実行</li>
+  <li>Windows 側の Figma で Token Studio プラグインを開き、<code>tokens.json</code> を手動 Import</li>
+  <li>Figma Variables が更新されたことを確認</li>
+</ol>
+<pre><code># tokens.json を手動で編集 or スクリプト生成後、
+# Figma Desktop → Token Studio プラグイン → Import JSON → tokens.json を選択</code></pre>
+<p>完全自動化は有料プラン (Enterprise) が必要。無料プランでは手動 import ステップが残る。</p>
+
+<div class="phase"><h3>Phase 4: Linux デスクトップで動作確認 (0.5日)</h3></div>
+<pre><code>cd poc_app
+flutter pub get
+flutter run -d linux    # WSLg 経由で Windows ウィンドウとして表示
+flutter build linux     # リリースビルド</code></pre>
+
+<div class="phase"><h3>Phase 5: ワークフロー文書化 (0.5日)</h3></div>
+<ul>
+  <li>Figma → Claude Code → Flutter の操作手順（再現可能な形で）</li>
+  <li>Design Tokens 双方向同期の操作手順</li>
+  <li>自動化できるステップ・手動が残るステップの整理</li>
+  <li>本番（組み込み Linux）への移行時の追加課題リスト</li>
+</ul>
+
+<h2>Figma ↔ Flutter 双方向連携の技術的評価</h2>
+<table>
+  <tr><th>方向</th><th>対象</th><th>可能性</th><th>手法</th></tr>
+  <tr><td>Figma → Flutter</td><td>UI コンポーネント</td><td class="badge-ok">✅ 高</td><td>Figma MCP + Claude Code</td></tr>
+  <tr><td>Figma → Flutter</td><td>Design Tokens</td><td class="badge-ok">✅ 高</td><td>Token Studio Export + figma2flutter</td></tr>
+  <tr><td>Flutter → Figma</td><td>UI コンポーネント</td><td class="badge-ng">❌ ほぼ不可能</td><td>実装例なし</td></tr>
+  <tr><td>Flutter → Figma</td><td>Design Tokens のみ</td><td class="badge-warn">⚠️ 手動操作</td><td>tokens.json → Token Studio 手動 Import（無料プラン制約）</td></tr>
+  <tr><td>完全な双方向同期</td><td>全体</td><td class="badge-ng">❌ 不可能</td><td>—</td></tr>
+</table>
+
+<h3>Flutter → Figma（逆方向）が困難な理由</h3>
+<ol>
+  <li><strong>Figma REST API はノード修正に非対応</strong> — 既存レイヤーのサイズ・位置・テキストを API で書き換えられない</li>
+  <li><strong>Widget ツリーは動的</strong> — 条件分岐・ステート管理・レスポンシブ計算を静的な Figma ノードに復元できない</li>
+  <li><strong>概念のミスマッチ</strong> — Flutter Widget (動的 UI 構築単位) と Figma Component (静的デザイン単位) は構造が根本的に異なる</li>
+</ol>
+
+<h2>開発環境アーキテクチャ</h2>
+<pre><code>Windows 11
+├── ブラウザ / Figma デスクトップアプリ  ← デザイン作業
+├── VS Code (WSL Remote Extension)       ← エディタ (任意)
+└── WSL2 (Ubuntu 24.04)
+    ├── Claude Code                      ← コード生成・レビュー
+    ├── Flutter SDK (Linux)              ← ビルド・実行
+    ├── figma-mcp-server (Node.js)       ← Figma API 橋渡し
+    └── WSLg                             ← GUI アプリを Windows ウィンドウで表示
+         └── Flutter Linux アプリ → Windows ウィンドウとして表示</code></pre>
+
+<h2>前提条件・依存</h2>
+<table>
+  <tr><th>ツール</th><th>バージョン目安</th><th>用途</th></tr>
+  <tr><td>Flutter SDK</td><td><strong>3.41.9</strong> (実績値。3.22+ で可)</td><td>UI フレームワーク</td></tr>
+  <tr><td>Dart SDK</td><td>3.4+ (Flutter 同梱)</td><td>言語</td></tr>
+  <tr><td>Node.js</td><td>18+</td><td>figma-mcp-server 実行</td></tr>
+  <tr><td>Figma アカウント</td><td>無料プラン可</td><td>デザインソース</td></tr>
+  <tr><td>Claude Code</td><td>現行</td><td>MCP 経由でコード生成</td></tr>
+  <tr><td>figma2flutter</td><td>pub.dev</td><td>Design Tokens JSON → Dart 変換</td></tr>
+  <tr><td>Token Studio (Figma プラグイン)</td><td>無料</td><td>Figma Variables ↔ JSON 同期（逆方向は手動 import）</td></tr>
+</table>
+
+<h2>検証ステップ (完了条件)</h2>
+<ol>
+  <li><code>flutter doctor</code> がエラーなしで通る</li>
+  <li>Figma MCP が Claude Code から呼び出せる</li>
+  <li>Figma デザインから Flutter UI コードが自動生成される（Phase 2）</li>
+  <li><code>flutter run -d linux</code> で画面が WSLg 経由で表示される（Phase 4）</li>
+  <li>Figma Variables の色変更が tokens.json → Flutter theme に自動反映される（Phase 3）</li>
+  <li>Flutter theme の色変更を tokens.json に書き出し → Token Studio 手動 import で Figma Variables に反映される（Phase 3 / 無料プラン制約により手動ステップあり）</li>
+  <li>PoC 手順書が書ける（Phase 5）</li>
+</ol>
+
+<h2>リスクと対処</h2>
+<table>
+  <tr><th>リスク</th><th>対処</th></tr>
+  <tr><td>Flutter Linux GUI が WSLg で表示されない</td><td><code>echo $DISPLAY</code> で <code>:0</code> を確認、WSL を再起動</td></tr>
+  <tr><td>snap が WSL2 で使えない</td><td><strong>既知問題 → 公式バイナリを手動展開 (計画済み・実証済み)</strong></td></tr>
+  <tr><td>Figma MCP が VSCode Remote WSL 環境で認識されない</td><td><strong>実績あり:</strong> <code>claude mcp add</code> は Windows 側 <code>C:\Users\...\.claude.json</code> に書き込むが、VSCode Remote WSL では WSL 側の <code>~/.claude.json</code> を読む。<code>~/.vscode-server/</code> 内の Claude バイナリで <code>mcp add</code> を実行し直すこと。VSCode の完全再起動（終了→起動）が必要。</td></tr>
+  <tr><td>Figma MCP サーバーの精度が低い</td><td>スクリーンショット → Claude Code に貼り付ける方式にフォールバック</td></tr>
+  <tr><td>GTK ライブラリ不足でビルドエラー</td><td><code>sudo apt install libgtk-3-dev</code> で解消</td></tr>
+  <tr><td>ARM ターゲットへのクロスコンパイル</td><td>Phase 4 以降の課題として切り出す</td></tr>
+  <tr><td>Windows と WSL のファイルパス混在</td><td>Figma トークンは WSL 内の <code>~/.env</code> に保管、Windows パスを渡さない</td></tr>
+</table>
+
+</body>
+</html>

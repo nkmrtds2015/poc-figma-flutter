@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Figma × Claude Code × Flutter ワークフロー手順書</title>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; color: #222; line-height: 1.7; }
+    h1 { border-bottom: 3px solid #1976D2; padding-bottom: 12px; color: #1976D2; }
+    h2 { border-bottom: 1px solid #ddd; padding-bottom: 6px; margin-top: 48px; color: #333; }
+    h3 { color: #1976D2; margin-top: 28px; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.9em; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto; }
+    pre code { background: none; padding: 0; color: inherit; font-size: 0.88em; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th { background: #1976D2; color: white; padding: 8px 12px; text-align: left; }
+    td { padding: 8px 12px; border: 1px solid #ddd; vertical-align: top; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    blockquote { border-left: 4px solid #1976D2; margin: 0; padding: 8px 16px; background: #e3f2fd; border-radius: 0 4px 4px 0; }
+    .warn { border-left: 4px solid #e65100; background: #fff3e0; padding: 8px 16px; border-radius: 0 4px 4px 0; margin: 8px 0; }
+    .ok { border-left: 4px solid #2e7d32; background: #e8f5e9; padding: 8px 16px; border-radius: 0 4px 4px 0; margin: 8px 0; }
+    .step { background: #e3f2fd; border-left: 5px solid #1976D2; padding: 6px 14px; margin: 20px 0 8px; border-radius: 0 4px 4px 0; font-weight: bold; }
+    .meta { color: #888; font-size: 0.85em; margin-bottom: 32px; }
+    .badge-auto { color: #2e7d32; font-weight: bold; }
+    .badge-manual { color: #e65100; font-weight: bold; }
+    .toc a { color: #1976D2; text-decoration: none; display: block; padding: 2px 0; }
+    .toc a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<h1>Figma × Claude Code × Flutter ワークフロー手順書</h1>
+<p class="meta">
+  作成日: 2026-05-17 &nbsp;|&nbsp;
+  環境: Windows 11 + WSL2 (Ubuntu 24.04) + Flutter 3.41.9 + Claude Code (VSCode Remote WSL)<br>
+  GitHub: <a href="https://github.com/nkmrtds2015/poc-figma-flutter">github.com/nkmrtds2015/poc-figma-flutter</a>
+</p>
+
+<nav class="toc">
+  <strong>目次</strong>
+  <a href="#overview">1. ワークフロー概要</a>
+  <a href="#env">2. 環境セットアップ（初回のみ）</a>
+  <a href="#figma-to-flutter">3. Figma → Flutter コード生成手順</a>
+  <a href="#design-tokens">4. Design Tokens 双方向同期手順</a>
+  <a href="#build-run">5. ビルド・実行手順</a>
+  <a href="#automation">6. 自動化できるステップ・手動が残るステップ</a>
+  <a href="#embedded-linux">7. 本番（組み込み Linux）への移行課題</a>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="overview">1. ワークフロー概要</h2>
+
+<pre><code>【Figma → Flutter（UI コード生成）】
+  Figma デザインファイル
+      ↓  Figma MCP (figma-developer-mcp)
+  Claude Code がデザイン構造・色・座標を取得
+      ↓  コード自動生成
+  Flutter ウィジェットコード (lib/screens/, lib/widgets/, lib/theme/)
+      ↓  flutter build linux
+  Linux デスクトップアプリ (WSLg → Windows ウィンドウとして表示)
+
+【Figma ↔ Flutter（Design Tokens 双方向）】
+  Figma Variables (色・スペース・フォント)
+      ↕  tokens.json (W3C Design Tokens 形式)
+  Flutter AppTheme / const 定義 (Dart コード)
+  ※ 逆方向 (Flutter → Figma) は Token Studio プラグインで手動 import</code></pre>
+
+<h3>各ツールの役割</h3>
+<table>
+  <tr><th>ツール</th><th>役割</th><th>動作場所</th></tr>
+  <tr><td>Figma (ブラウザ/デスクトップ)</td><td>デザイン作成・Variables 管理</td><td>Windows 側</td></tr>
+  <tr><td>figma-developer-mcp</td><td>Figma API ↔ Claude Code の橋渡し</td><td>WSL2 (Node.js)</td></tr>
+  <tr><td>Claude Code (VSCode Remote WSL)</td><td>デザイン解析・コード生成・レビュー</td><td>WSL2</td></tr>
+  <tr><td>Flutter SDK 3.41.9</td><td>ビルド・実行</td><td>WSL2</td></tr>
+  <tr><td>WSLg</td><td>Linux GUI を Windows ウィンドウで表示</td><td>Windows 11 組み込み</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="env">2. 環境セットアップ（初回のみ）</h2>
+
+<div class="step">Step 1: GTK 依存パッケージのインストール</div>
+<pre><code>sudo apt update
+sudo apt install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev</code></pre>
+
+<div class="step">Step 2: Flutter SDK のインストール</div>
+<pre><code># 最新安定版バージョンを確認
+python3 -c "
+import json, urllib.request
+d = json.load(urllib.request.urlopen('https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json'))
+r = [x for x in d['releases'] if x['channel']=='stable'][0]
+print(r['version'], r['archive'])
+"
+
+# ダウンロード・展開（バージョンは確認した値に置き換える）
+cd ~
+wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.41.9-stable.tar.xz
+tar xf flutter_linux_3.41.9-stable.tar.xz
+echo 'export PATH="$HOME/flutter/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+flutter config --enable-linux-desktop
+flutter doctor  # Linux toolchain: ✓ が表示されれば OK</code></pre>
+
+<div class="step">Step 3: Figma アカウント作成 &amp; Personal Access Token 発行</div>
+<ol>
+  <li>Windows のブラウザで <strong>figma.com</strong> にアクセスし無料アカウント作成</li>
+  <li>右上アイコン → Settings → Account → <strong>Personal access tokens</strong></li>
+  <li>「Generate new token」で発行
+    <ul>
+      <li>Name: <code>claude-code-poc</code></li>
+      <li>Expiration: <strong>30 days</strong></li>
+      <li>Scopes: <strong>File content: Read only</strong> のみ選択
+        <span class="warn">⚠️ Variables スコープは無料プランでは表示されない（Enterprise 限定）</span>
+      </li>
+    </ul>
+  </li>
+  <li>発行されたトークンを WSL2 ターミナルで安全保存:
+    <pre><code>echo 'FIGMA_ACCESS_TOKEN=&lt;発行されたトークン&gt;' > ~/.figma_token
+chmod 600 ~/.figma_token</code></pre>
+  </li>
+</ol>
+
+<div class="step">Step 4: Figma MCP の登録（VSCode Remote WSL 環境）</div>
+<div class="warn">
+  <strong>⚠️ 重要:</strong> VSCode Remote (WSL) 拡張経由で Claude Code を使う場合、
+  <code>claude mcp add</code> コマンドは Windows 側の <code>C:\Users\...\.claude.json</code> に書き込む。
+  しかし実行環境は WSL2 側のため、<strong>WSL 側の <code>~/.claude.json</code></strong> に登録する必要がある。
+  VSCode Server 内の Claude バイナリを使って登録すること。
+</div>
+<pre><code># vscode-server 内の Claude バイナリのパスを確認
+CLAUDE_BIN=$(ls ~/.vscode-server/extensions/anthropic.claude-code-*/resources/native-binary/claude 2>/dev/null | tail -1)
+echo $CLAUDE_BIN  # パスが表示されれば OK
+
+# トークンを読み込んで MCP 登録
+TOKEN=$(grep FIGMA_ACCESS_TOKEN ~/.figma_token | cut -d= -f2- | tr -d '\n')
+$CLAUDE_BIN mcp add figma -s user -- npx -y figma-developer-mcp --figma-api-key $TOKEN --stdio
+
+# 登録確認（figma: ✓ Connected が表示されれば OK）
+$CLAUDE_BIN mcp list</code></pre>
+<p>登録後、<strong>VSCode を完全に終了して再起動</strong>する（Reload Window では MCP が反映されない）。</p>
+
+<div class="step">Step 5: WSLg の動作確認</div>
+<pre><code>echo $DISPLAY        # ":0" が返れば WSLg 有効
+echo $WAYLAND_DISPLAY  # "wayland-0" が返れば Wayland も有効</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="figma-to-flutter">3. Figma → Flutter コード生成手順</h2>
+
+<div class="step">Step 1: Figma でデザインを作成</div>
+<ul>
+  <li>Windows のブラウザまたは Figma デスクトップアプリでデザインを作成</li>
+  <li>デザインファイルの URL をコピー (<code>https://www.figma.com/design/&lt;fileKey&gt;/...</code>)
+    <div class="warn">⚠️ <code>figma.com/make/...</code> (Figma Make) の URL は MCP で読めない。通常の Figma デザインとして開き直すこと。</div>
+  </li>
+</ul>
+
+<div class="step">Step 2: Claude Code で MCP ツールを使ってデザインデータを取得</div>
+<p>Claude Code のチャットで以下を指示する:</p>
+<blockquote>
+  「Figma MCP で <code>https://www.figma.com/design/&lt;fileKey&gt;/...</code> のデザインデータを取得して、Flutter コードを生成してください」
+</blockquote>
+<p>Claude Code が内部で <code>mcp__figma__get_figma_data</code> ツールを呼び出し、以下の情報を取得する:</p>
+<ul>
+  <li>ノード構造（Frame・Rectangle・Text など）</li>
+  <li>座標・サイズ・色・フォントスタイル</li>
+  <li>コンポーネント定義</li>
+</ul>
+
+<div class="step">Step 3: 生成されるファイル構成</div>
+<pre><code>lib/
+├── main.dart                        # エントリーポイント
+├── screens/
+│   └── dashboard_screen.dart        # Figma Frame から生成された画面
+├── widgets/
+│   └── card_widget.dart             # Figma Component から生成されたウィジェット
+└── theme/
+    └── app_theme.dart               # Figma の色・テキストスタイルを定数として定義</code></pre>
+
+<div class="step">Step 4: コード品質確認</div>
+<pre><code>export PATH="$HOME/flutter/bin:$PATH"
+cd poc_app
+flutter analyze  # "No issues found!" が返れば OK</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="design-tokens">4. Design Tokens 双方向同期手順</h2>
+
+<h3>4-1. Figma → Flutter（順方向・自動）</h3>
+<div class="step">Step 1: Figma で Token Studio プラグインをインストール</div>
+<ol>
+  <li>Figma → Plugins → 「Token Studio for Figma」を検索してインストール</li>
+  <li>Figma Variables を Token Studio で管理する形に設定</li>
+</ol>
+
+<div class="step">Step 2: tokens.json を Export</div>
+<ol>
+  <li>Token Studio プラグインを開く</li>
+  <li>Export → JSON として <code>tokens.json</code> を保存</li>
+  <li>ファイルを WSL2 プロジェクトフォルダにコピー</li>
+</ol>
+
+<div class="step">Step 3: figma2flutter で Dart コードに変換</div>
+<pre><code>dart pub global activate figma2flutter
+figma2flutter --input tokens.json --output lib/theme/tokens.dart</code></pre>
+
+<h3>4-2. Flutter → Figma（逆方向・手動）</h3>
+<div class="warn">
+  <strong>⚠️ 無料プラン制約:</strong> Figma REST API の Variables 書き込み (<code>file_variables:write</code>) は
+  Enterprise プランのみ。無料プランでは手動 import が必要。
+</div>
+
+<div class="step">Step 1: Flutter 側のトークン値を tokens.json に書き出す</div>
+<pre><code># lib/theme/app_theme.dart の変更内容を tokens.json に手動で反映
+# または専用スクリプト（dart run tools/export_tokens.dart）で生成</code></pre>
+
+<div class="step">Step 2: Figma の Token Studio で import</div>
+<ol>
+  <li>Windows 側の Figma を開く</li>
+  <li>Token Studio プラグイン → Import JSON → <code>tokens.json</code> を選択</li>
+  <li>Figma Variables が更新されたことを確認</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="build-run">5. ビルド・実行手順</h2>
+
+<div class="step">デバッグ実行（WSLg 経由で Windows ウィンドウとして表示）</div>
+<pre><code>export PATH="$HOME/flutter/bin:$PATH"
+export DISPLAY=:0
+cd poc_app
+flutter run -d linux</code></pre>
+
+<div class="step">リリースビルド</div>
+<pre><code>flutter build linux
+# 成果物: build/linux/x64/release/bundle/poc_app</code></pre>
+
+<div class="ok">
+  <strong>✅ 動作確認済み:</strong> WSL2 + WSLg (1.0.71) 環境で Flutter 3.41.9 Linux ビルドが正常動作。
+  追加の X11/Wayland 設定は不要。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="automation">6. 自動化できるステップ・手動が残るステップ</h2>
+
+<table>
+  <tr><th>ステップ</th><th>自動/手動</th><th>備考</th></tr>
+  <tr><td>Figma デザインデータの取得</td><td class="badge-auto">✅ 自動</td><td>Figma MCP + Claude Code</td></tr>
+  <tr><td>Flutter UI コード生成</td><td class="badge-auto">✅ 自動</td><td>Claude Code が生成</td></tr>
+  <tr><td>flutter analyze / build</td><td class="badge-auto">✅ 自動</td><td>CI/CD に組み込み可</td></tr>
+  <tr><td>Figma Variables → tokens.json Export</td><td class="badge-manual">⚠️ 手動</td><td>Token Studio プラグインで手動操作（無料プラン）</td></tr>
+  <tr><td>tokens.json → Dart コード変換</td><td class="badge-auto">✅ 自動</td><td><code>figma2flutter</code> コマンド</td></tr>
+  <tr><td>Flutter 変更 → Figma Variables 反映</td><td class="badge-manual">⚠️ 手動</td><td>Token Studio で手動 import（無料プラン制約）</td></tr>
+  <tr><td>GitHub へのコード登録</td><td class="badge-auto">✅ 自動</td><td><code>git push</code></td></tr>
+</table>
+
+<h3>自動化の拡張余地</h3>
+<ul>
+  <li>GitHub Actions で <code>flutter build linux</code> を CI に組み込み可能</li>
+  <li>Figma Webhook + tokens.json 自動生成スクリプトで Export を半自動化できる</li>
+  <li>Enterprise プランに移行すれば Variables の書き込みも API 自動化できる</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="embedded-linux">7. 本番（組み込み Linux）への移行課題</h2>
+
+<table>
+  <tr><th>課題</th><th>内容</th><th>優先度</th></tr>
+  <tr>
+    <td>ターゲット CPU アーキテクチャの確定</td>
+    <td>ARM (Raspberry Pi 等) か x86_64 か未確定。ARM の場合はクロスコンパイル設定が必要。</td>
+    <td>🔴 高</td>
+  </tr>
+  <tr>
+    <td>GTK 依存ライブラリのデプロイ</td>
+    <td>Flutter Linux ビルドは <code>libflutter_linux_gtk.so</code> など動的ライブラリが必要。組み込み OS に GTK が入っているか確認が必要。</td>
+    <td>🔴 高</td>
+  </tr>
+  <tr>
+    <td>ARM 向けクロスコンパイル設定</td>
+    <td>Flutter の ARM Linux ビルドは現時点で公式サポートが限定的。<code>flutter build linux --target-platform linux-arm64</code> の検証が必要。</td>
+    <td>🟡 中</td>
+  </tr>
+  <tr>
+    <td>ディスプレイサーバーの確認</td>
+    <td>組み込み環境で X11/Wayland が使えるか確認。使えない場合は Flutter の Embedded Linux (eLinux) 対応を検討。</td>
+    <td>🟡 中</td>
+  </tr>
+  <tr>
+    <td>タッチスクリーン対応</td>
+    <td>組み込み機器がタッチパネルを持つ場合、Flutter のタッチイベント対応を確認・実装。</td>
+    <td>🟢 低（要件次第）</td>
+  </tr>
+  <tr>
+    <td>フォント埋め込み</td>
+    <td>組み込み環境に Inter フォントが入っていない場合、<code>pubspec.yaml</code> にフォントをバンドルする設定が必要。</td>
+    <td>🟢 低</td>
+  </tr>
+</table>
+
+<h3>ARM 向けビルドの参考手順（未検証）</h3>
+<pre><code># Flutter eLinux (Sonos/Sony 製コントリビューション) を使う方法
+# https://github.com/sony/flutter-elinux
+git clone https://github.com/sony/flutter-elinux
+./flutter-elinux/bin/flutter-elinux build elinux --target-arch arm64</code></pre>
+
+</body>
+</html>
